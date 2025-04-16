@@ -13,13 +13,11 @@ use presentation::*;
 use presentation::components::tab;
 
 fn main() {
-    // Launch the app in a browser
-    #[cfg(feature = "web")]
     dioxus::launch(app);
 }
 
+#[component]
 fn app() -> Element {
-    // Initialize repository
     #[cfg(feature = "web")]
     let repository = Rc::new(LocalStorageResumeRepository::new("resume-data"));
     

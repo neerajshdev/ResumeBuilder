@@ -30,7 +30,7 @@ pub fn PersonalInfoForm(
             h2 { class: "text-xl font-bold mb-3", "Personal Information" }
             div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
                 div {
-                    label { class: "block", "Name" }
+                    label { class: "block", "Your Name" }
                     input {
                         class: "w-full p-2 border rounded",
                         r#type: "text",
