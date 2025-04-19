@@ -9,43 +9,38 @@ use std::rc::Rc;
 use domain::*;
 use application::*;
 use infrastructure::*;
-use presentation::*;
-use presentation::components::tab;
+use presentation::prelude::*;
 
 fn main() {
     dioxus::launch(app);
 }
 
 fn app() -> Element {
+    // --- State Management ---
+    // UI state
+    let mut is_preview_mode = use_signal(|| false);
+    let mut show_export_modal = use_signal(|| false);
+    let mut sections_order = use_signal(|| vec![
+        "personal", "education", "experience", "skills", "projects"
+    ]);
+    
+    // Resume data state
+    let mut resume = use_signal(|| Resume::default());
+    let mut selected_theme = use_signal(|| 0);
+    
+    // --- Setup Repository and Use Cases ---
     #[cfg(feature = "web")]
     let repository = Rc::new(LocalStorageResumeRepository::new("resume-data"));
     
     #[cfg(not(feature = "web"))]
-    let resume_signal = use_signal(|| None::<Resume>);
+    let repository = Rc::new(InMemoryResumeRepository::new(use_signal(|| None::<Resume>)));
     
-    #[cfg(not(feature = "web"))]
-    let repository = Rc::new(InMemoryResumeRepository::new(resume_signal));
-    
-    // Initialize use case
     let use_case = Rc::new(ResumeUseCase::new(repository));
+    let use_case_load = use_case.clone();
+    let use_case_save = use_case.clone();
     
-    // Initialize view model
-    let view_model = Rc::new(ResumeViewModel::new(use_case));
-    let view_model_clone = view_model.clone();
-    let view_model_effect_clone = view_model.clone();
-    
-    // Load existing data if available using an effect to prevent signal write during render
-    use_effect(move || {
-        let vm = view_model_effect_clone.clone();
-        vm.load();
-    });
-    
-    // UI state - using imported Tab from components
-    let mut current_tab = use_signal(|| tab::Tab::Personal);
-    let mut show_export_modal = use_signal(|| false);
-    
-    // Define available themes
-    let themes = vec![
+    // --- Themes ---
+    let themes: Vec<Theme> = vec![
         ("Professional", "bg-blue-50"),
         ("Minimal", "bg-gray-50"),
         ("Creative", "bg-purple-50"),
@@ -53,27 +48,56 @@ fn app() -> Element {
         ("Executive", "bg-amber-50"),
         ("Technical", "bg-cyan-50"),
     ];
-    let themes_clone = themes.clone();
     
-    // Selected theme state
-    let mut selected_theme = use_signal(|| 0);
+    // --- Effects ---
+    // Load existing data if available
+    use_effect(move || {
+        if let Ok(loaded_resume) = use_case_load.load_resume() {
+            resume.set(loaded_resume);
+        }
+    });
     
-    // Function to export resume to PDF (simulated for now)
-    let export_to_pdf = move |_| {
-        show_export_modal.set(true);
-        
-        // In a real app, this would convert the resume to PDF
-        // and provide a download link to the user
-        let theme_name = themes_clone[selected_theme()].0.to_string();
-        println!("Exporting resume to PDF with theme: {}", theme_name);
+    // --- Event Handlers ---
+    // Function to handle section drag
+    let mut handle_section_drag = move |from: usize, to: usize| {
+        let mut new_order = sections_order();
+        let section = new_order.remove(from);
+        new_order.insert(to, section);
+        sections_order.set(new_order);
     };
     
+    // Save resume function
+    let save_resume = move |_: Event<MouseData>| {
+        if let Err(err) = use_case_save.save_resume(&resume()) {
+            println!("Error saving resume: {}", err);
+        } else {
+            println!("Resume saved successfully");
+        }
+    };
+    
+    // Export to PDF function
+    let export_to_pdf = move |_: Event<MouseData>| {
+        show_export_modal.set(true);
+    };
+    
+    // Function for handling close of export modal
+    let close_export_modal = move |_| {
+        show_export_modal.set(false);
+    };
+    
+    // Function for handling PDF download
+    let download_pdf = move |_| {
+        println!("Downloading PDF...");
+        show_export_modal.set(false);
+    };
+    
+    // --- Render UI ---
     rsx! {
         div {
             class: "min-h-screen bg-gray-100",
             div {
-                class: "container mx-auto p-4",
-                // Header with logo and actions
+                class: "container mx-auto p-4 max-w-5xl",
+                // Header with title, mode toggle, and actions
                 div {
                     class: "flex justify-between items-center mb-6",
                     h1 {
@@ -82,7 +106,13 @@ fn app() -> Element {
                     },
                     
                     div {
-                        class: "flex space-x-2",
+                        class: "flex items-center gap-4",
+                        // Edit/Preview toggle
+                        ToggleButton {
+                            is_preview_mode: is_preview_mode(),
+                            on_toggle: move |preview| is_preview_mode.set(preview)
+                        },
+                        
                         button {
                             class: "px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-300 flex items-center",
                             onclick: export_to_pdf,
@@ -105,471 +135,166 @@ fn app() -> Element {
                         
                         button {
                             class: "px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-300",
-                            onclick: move |_| { view_model_clone.clone().save(); },
-                            {"Save"}
+                            onclick: save_resume,
+                            "Save"
                         }
                     }
                 },
                 
-                // Tab navigation
-                TabBar {
-                    current_tab: current_tab(),
-                    on_tab_change: move |tab| current_tab.set(tab),
-                },
-                
-                // Tab content
-                div {
-                    class: "p-6 border rounded bg-white shadow-md",
-                    match current_tab() {
-                        tab::Tab::Personal => rsx! {
-                            PersonalInfoForm {
-                                personal_info: view_model.clone().resume().personal_info,
-                                on_change: move |info| view_model.clone().update_personal_info(info),
-                            }
+                // Content - Either Preview or Edit mode
+                if is_preview_mode() {
+                    // Preview mode
+                    ThemeSelector {
+                        themes: themes.clone(),
+                        selected_theme: selected_theme(),
+                        on_theme_select: move |index| selected_theme.set(index)
+                    }
+                    
+                    ResumePreview {
+                        resume: resume(),
+                        theme_bg: themes[selected_theme()].1
+                    }
+                } else {
+                    // Edit mode - Draggable sections
+                    div {
+                        class: "space-y-4",
+                        p {
+                            class: "text-gray-700 italic mb-4",
+                            "Tip: Drag and drop sections to reorder them in your resume"
                         },
-                        tab::Tab::Education => rsx! {
-                            div {
-                                h2 {
-                                    class: "text-xl font-bold mb-4",
-                                    "Education"
+                        
+                        // Render each section in the user-defined order
+                        for (index, section_id) in sections_order().iter().enumerate() {
+                            DraggableSection {
+                                index: index,
+                                total_sections: sections_order().len(),
+                                on_move_up: if index > 0 {
+                                    Some(EventHandler::new(move |_| handle_section_drag(index, index - 1)))
+                                } else {
+                                    None
                                 },
-                                
-                                // Education form here
-                                // In a real app, you would create an EducationForm component
-                                p {
-                                    class: "text-gray-600",
-                                    "Add your educational background here"
+                                on_move_down: if index < sections_order().len() - 1 {
+                                    Some(EventHandler::new(move |_| handle_section_drag(index, index + 1)))
+                                } else {
+                                    None
                                 },
-                                
-                                // Display existing education entries
-                                if !view_model.clone().resume().education.is_empty() {
-                                    div {
-                                        class: "mt-4 space-y-4",
-                                        for (_index, edu) in view_model.clone().resume().education.iter().enumerate() {
-                                            div {
-                                                class: "p-4 border rounded bg-gray-50",
-                                                div {
-                                                    class: "font-bold text-lg",
-                                                    "{edu.institution}"
-                                                },
-                                                div {
-                                                    "{edu.degree} in {edu.field_of_study}"
-                                                },
-                                                div {
-                                                    class: "text-sm text-gray-600",
-                                                    "{edu.start_date} - {edu.end_date}"
-                                                },
-                                                // Edit and Delete buttons would go here
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        tab::Tab::Experience => rsx! {
-                            div {
-                                h2 {
-                                    class: "text-xl font-bold mb-4",
-                                    "Work Experience"
-                                },
-                                
-                                // Experience form here
-                                // In a real app, you would create an ExperienceForm component
-                                p {
-                                    class: "text-gray-600",
-                                    "Add your work experience here"
-                                },
-                                
-                                // Display existing experience entries
-                                if !view_model.clone().resume().experience.is_empty() {
-                                    div {
-                                        class: "mt-4 space-y-4",
-                                        for (_index, exp) in view_model.clone().resume().experience.iter().enumerate() {
-                                            div {
-                                                class: "p-4 border rounded bg-gray-50",
-                                                div {
-                                                    class: "font-bold text-lg",
-                                                    "{exp.company}"
-                                                },
-                                                div {
-                                                    "{exp.position}"
-                                                },
-                                                div {
-                                                    class: "text-sm text-gray-600",
-                                                    if exp.is_current {
-                                                        "{exp.start_date} - Present"
-                                                    } else {
-                                                        "{exp.start_date} - {exp.end_date}"
-                                                    }
-                                                },
-                                                // Edit and Delete buttons would go here
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        tab::Tab::Skills => rsx! {
-                            div {
-                                h2 {
-                                    class: "text-xl font-bold mb-4",
-                                    "Skills"
-                                },
-                                
-                                // Skills form here
-                                // In a real app, you would create a SkillsForm component
-                                p {
-                                    class: "text-gray-600",
-                                    "Add your skills here"
-                                },
-                                
-                                // Display existing skill categories
-                                if !view_model.clone().resume().skills.categories.is_empty() {
-                                    div {
-                                        class: "mt-4 space-y-4",
-                                        for (category, skills) in view_model.clone().resume().skills.categories.iter() {
-                                            div {
-                                                class: "p-4 border rounded bg-gray-50",
-                                                div {
-                                                    class: "font-bold",
-                                                    "{category}"
-                                                },
-                                                div {
-                                                    class: "flex flex-wrap gap-2 mt-2",
-                                                    for skill in skills {
-                                                        span {
-                                                            class: "bg-blue-100 px-2 py-1 rounded text-sm",
-                                                            "{skill}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        tab::Tab::Projects => rsx! {
-                            div {
-                                h2 {
-                                    class: "text-xl font-bold mb-4",
-                                    "Projects"
-                                },
-                                
-                                // Projects form here
-                                // In a real app, you would create a ProjectsForm component
-                                p {
-                                    class: "text-gray-600",
-                                    "Add your projects here"
-                                },
-                                
-                                // Display existing projects
-                                if !view_model.clone().resume().projects.is_empty() {
-                                    div {
-                                        class: "mt-4 space-y-4",
-                                        for (_index, project) in view_model.clone().resume().projects.iter().enumerate() {
-                                            div {
-                                                class: "p-4 border rounded bg-gray-50",
-                                                div {
-                                                    class: "font-bold text-lg",
-                                                    "{project.name}"
-                                                },
-                                                p {
-                                                    class: "text-sm",
-                                                    "{project.description}"
-                                                },
-                                                
-                                                if !project.technologies.is_empty() {
-                                                    div {
-                                                        class: "flex flex-wrap gap-2 mt-2",
-                                                        for tech in project.technologies.iter() {
-                                                            span {
-                                                                class: "bg-blue-100 px-2 py-1 rounded text-sm",
-                                                                "{tech}"
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        tab::Tab::Preview => rsx! {
-                            div {
-                                // Theme selector
-                                div {
-                                    class: "mb-6",
-                                    h2 {
-                                        class: "text-xl font-bold mb-3",
-                                        "Resume Preview"
-                                    },
-                                    
-                                    // Theme selection
-                                    div {
-                                        class: "mb-4",
-                                        label {
-                                            class: "block text-sm font-medium text-gray-700 mb-2",
-                                            "Select Theme:"
-                                        },
-                                        div {
-                                            class: "grid grid-cols-3 gap-2",
-                                            for (index, (theme_name, theme_bg)) in themes.iter().enumerate() {
-                                                div {
-                                                    class: "relative cursor-pointer",
-                                                    onclick: move |_| selected_theme.set(index),
-                                                    div {
-                                                        class: format!("border-2 {} p-2 rounded transition-colors {}", if selected_theme() == index { "border-blue-500" } else { "border-gray-200" }, theme_bg),
-                                                        div {
-                                                            class: "h-10 flex items-center justify-center",
-                                                            "{theme_name}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                // Resume preview with selected theme
-                                div {
-                                    class: format!("border p-6 bg-white shadow rounded {}", themes[selected_theme()].1),
-                                    // Personal info
-                                    div {
-                                        class: "mb-6 border-b pb-4",
-                                        h1 {
-                                            class: "text-2xl font-bold",
-                                            "{view_model.clone().resume().personal_info.name}"
-                                        },
-                                        div {
-                                            class: "flex flex-wrap gap-2 text-sm text-gray-600",
-                                            if !view_model.clone().resume().personal_info.email.is_empty() {
-                                                span {
-                                                    "{view_model.clone().resume().personal_info.email}"
-                                                }
-                                            },
-                                            if !view_model.clone().resume().personal_info.phone.is_empty() {
-                                                span {
-                                                    "{view_model.clone().resume().personal_info.phone}"
-                                                }
-                                            },
-                                            if !view_model.clone().resume().personal_info.location.is_empty() {
-                                                span {
-                                                    "{view_model.clone().resume().personal_info.location}"
-                                                }
+                                match *section_id {
+                                    "personal" => rsx! {
+                                        PersonalInfoForm {
+                                            personal_info: resume().personal_info,
+                                            on_change: move |info| {
+                                                let mut updated_resume = resume();
+                                                updated_resume.personal_info = info;
+                                                resume.set(updated_resume);
                                             }
                                         }
                                     },
-                                    
-                                    // Summary
-                                    if !view_model.clone().resume().personal_info.summary.is_empty() {
+                                    "education" => rsx! {
                                         div {
-                                            class: "mt-4",
                                             h2 {
-                                                class: "text-lg font-bold border-b",
-                                                "Summary"
-                                            },
-                                            p {
-                                                class: "mt-2",
-                                                "{view_model.clone().resume().personal_info.summary}"
-                                            }
-                                        }
-                                    },
-                                    
-                                    // Education
-                                    if !view_model.clone().resume().education.is_empty() {
-                                        div {
-                                            class: "mt-6",
-                                            h2 {
-                                                class: "text-lg font-bold border-b mb-2",
+                                                class: "text-xl font-bold mb-4",
                                                 "Education"
                                             },
-                                            for edu in view_model.clone().resume().education.iter() {
-                                                div {
-                                                    class: "mt-3",
-                                                    div {
-                                                        class: "font-bold",
-                                                        "{edu.institution}"
-                                                    },
-                                                    div {
-                                                        "{edu.degree} in {edu.field_of_study}"
-                                                    },
-                                                    div {
-                                                        class: "text-sm text-gray-600",
-                                                        "{edu.start_date} - {edu.end_date}"
-                                                    },
-                                                    if !edu.description.is_empty() {
-                                                        p {
-                                                            class: "text-sm mt-1",
-                                                            "{edu.description}"
-                                                        }
+                                            
+                                            EducationForm {
+                                                education_list: resume().education.clone(),
+                                                on_add: move |edu| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.education.push(edu);
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_update: move |(index, edu)| {
+                                                    let mut updated_resume = resume();
+                                                    if let Some(existing_edu) = updated_resume.education.get_mut(index) {
+                                                        *existing_edu = edu;
                                                     }
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_remove: move |index| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.education.remove(index);
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_edit: move |_index| {
+                                                    // Handled within EducationForm
                                                 }
                                             }
                                         }
                                     },
-                                    
-                                    // Experience
-                                    if !view_model.clone().resume().experience.is_empty() {
+                                    "experience" => rsx! {
                                         div {
-                                            class: "mt-6",
                                             h2 {
-                                                class: "text-lg font-bold border-b mb-2",
-                                                "Experience"
+                                                class: "text-xl font-bold mb-4",
+                                                "Work Experience"
                                             },
-                                            for exp in view_model.clone().resume().experience.iter() {
-                                                div {
-                                                    class: "mt-3",
-                                                    div {
-                                                        class: "font-bold",
-                                                        "{exp.company}"
-                                                    },
-                                                    div {
-                                                        "{exp.position}"
-                                                    },
-                                                    div {
-                                                        class: "text-sm text-gray-600",
-                                                        if exp.is_current {
-                                                            "{exp.start_date} - Present"
-                                                        } else {
-                                                            "{exp.start_date} - {exp.end_date}"
-                                                        }
-                                                    },
-                                                    p {
-                                                        class: "text-sm mt-1",
-                                                        "{exp.description}"
-                                                    },
-                                                    
-                                                    if !exp.achievements.is_empty() {
-                                                        ul {
-                                                            class: "list-disc ml-5 text-sm mt-1",
-                                                            for achievement in exp.achievements.iter() {
-                                                                li {
-                                                                    "{achievement}"
-                                                                }
-                                                            }
-                                                        }
+                                            
+                                            ExperienceForm {
+                                                experience_list: resume().experience.clone(),
+                                                on_add: move |exp| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.experience.push(exp);
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_update: move |(index, exp)| {
+                                                    let mut updated_resume = resume();
+                                                    if let Some(existing_exp) = updated_resume.experience.get_mut(index) {
+                                                        *existing_exp = exp;
                                                     }
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_remove: move |index| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.experience.remove(index);
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_edit: move |_index| {
+                                                    // Handled within ExperienceForm
                                                 }
                                             }
                                         }
                                     },
-                                    
-                                    // Skills
-                                    if !view_model.clone().resume().skills.categories.is_empty() {
+                                    "skills" => rsx! {
                                         div {
-                                            class: "mt-6",
                                             h2 {
-                                                class: "text-lg font-bold border-b mb-2",
+                                                class: "text-xl font-bold mb-4",
                                                 "Skills"
                                             },
-                                            for (category, skills) in view_model.clone().resume().skills.categories.iter() {
-                                                div {
-                                                    class: "mt-2",
-                                                    div {
-                                                        class: "font-bold",
-                                                        "{category}"
-                                                    },
-                                                    div {
-                                                        class: "flex flex-wrap gap-2 mt-1",
-                                                        for skill in skills {
-                                                            span {
-                                                                class: "bg-gray-200 px-2 py-1 rounded text-sm",
-                                                                "{skill}"
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                            
+                                            // Skills form placeholder
+                                            p {
+                                                class: "text-gray-600",
+                                                "Skills section coming soon"
                                             }
                                         }
                                     },
-                                    
-                                    // Projects
-                                    if !view_model.clone().resume().projects.is_empty() {
+                                    "projects" => rsx! {
                                         div {
-                                            class: "mt-6",
                                             h2 {
-                                                class: "text-lg font-bold border-b mb-2",
+                                                class: "text-xl font-bold mb-4",
                                                 "Projects"
                                             },
-                                            for project in view_model.clone().resume().projects.iter() {
-                                                div {
-                                                    class: "mt-3",
-                                                    div {
-                                                        class: "font-bold",
-                                                        "{project.name}"
-                                                    },
-                                                    div {
-                                                        class: "text-sm text-gray-600",
-                                                        "{project.start_date} - {project.end_date}"
-                                                    },
-                                                    if !project.url.is_empty() {
-                                                        a {
-                                                            class: "text-blue-500 text-sm block",
-                                                            href: "{project.url}",
-                                                            target: "_blank",
-                                                            "{project.url}"
-                                                        }
-                                                    },
-                                                    p {
-                                                        class: "text-sm mt-1",
-                                                        "{project.description}"
-                                                    },
-                                                    
-                                                    if !project.technologies.is_empty() {
-                                                        div {
-                                                            class: "flex flex-wrap gap-2 mt-2",
-                                                            for tech in project.technologies.iter() {
-                                                                span {
-                                                                    class: "bg-gray-200 px-2 py-1 rounded text-sm",
-                                                                    "{tech}"
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                            
+                                            // Projects form placeholder
+                                            p {
+                                                class: "text-gray-600",
+                                                "Projects section coming soon"
                                             }
                                         }
-                                    }
+                                    },
+                                    _ => rsx! { div { "Unknown section" } }
                                 }
                             }
                         }
                     }
                 }
             },
+            
             // Export modal
-            if show_export_modal() {
-                div {
-                    class: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50",
-                    div {
-                        class: "bg-white rounded-lg p-6 w-96 shadow-xl",
-                        h3 {
-                            class: "text-xl font-bold mb-4",
-                            "Export Resume"
-                        },
-                        p {
-                            class: "mb-4",
-                            "Your resume has been prepared for export with the '{themes[selected_theme()].0}' theme."
-                        },
-                        div {
-                            class: "flex justify-between",
-                            button {
-                                class: "px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 transition-colors",
-                                onclick: move |_| show_export_modal.set(false),
-                                "Close"
-                            },
-                            button {
-                                class: "px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors",
-                                onclick: move |_| {
-                                    // Simulate download in a real app
-                                    println!("Downloading PDF...");
-                                    show_export_modal.set(false);
-                                },
-                                "Download PDF"
-                            }
-                        }
-                    }
-                }
+            ExportModal {
+                show: show_export_modal(),
+                theme_name: themes[selected_theme()].0.to_string(),
+                on_close: EventHandler::new(close_export_modal),
+                on_download: EventHandler::new(download_pdf)
             }
         }
     }
