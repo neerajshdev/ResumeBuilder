@@ -260,10 +260,25 @@ fn app() -> Element {
                                                 "Skills"
                                             },
                                             
-                                            // Skills form placeholder
-                                            p {
-                                                class: "text-gray-600",
-                                                "Skills section coming soon"
+                                            SkillsForm {
+                                                skills: resume().skills.skill_list.clone(),
+                                                on_add: move |skill| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.skills.skill_list.push(skill);
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_edit: move |(index, skill)| {
+                                                    let mut updated_resume = resume();
+                                                    if let Some(existing) = updated_resume.skills.skill_list.get_mut(index) {
+                                                        *existing = skill;
+                                                    }
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_remove: move |index| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.skills.skill_list.remove(index);
+                                                    resume.set(updated_resume);
+                                                }
                                             }
                                         }
                                     },
@@ -274,10 +289,25 @@ fn app() -> Element {
                                                 "Projects"
                                             },
                                             
-                                            // Projects form placeholder
-                                            p {
-                                                class: "text-gray-600",
-                                                "Projects section coming soon"
+                                            ProjectsForm {
+                                                projects: resume().projects.clone(),
+                                                on_add: move |project| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.projects.push(project);
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_edit: move |(index, project)| {
+                                                    let mut updated_resume = resume();
+                                                    if let Some(existing) = updated_resume.projects.get_mut(index) {
+                                                        *existing = project;
+                                                    }
+                                                    resume.set(updated_resume);
+                                                },
+                                                on_remove: move |index| {
+                                                    let mut updated_resume = resume();
+                                                    updated_resume.projects.remove(index);
+                                                    resume.set(updated_resume);
+                                                }
                                             }
                                         }
                                     },

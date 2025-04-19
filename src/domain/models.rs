@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use chrono::NaiveDate;
 
 // Core domain entities for the Resume Builder application
 
@@ -53,22 +54,30 @@ pub struct Experience {
     pub is_current: bool,
 }
 
+// Skill item
+#[derive(Default, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Skill {
+    pub name: String,
+    pub level: i32,  // 0-5 scale
+}
+
 // Skills section
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Skills {
     pub categories: HashMap<String, Vec<String>>,
+    pub skill_list: Vec<Skill>,
 }
 
 // Project section
-#[derive(Default, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Project {
     pub name: String,
+    pub role: String,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
     pub description: String,
-    pub start_date: String,
-    pub end_date: String,
     pub technologies: Vec<String>,
     pub url: String,
-    pub achievements: Vec<String>,
 }
 
 // Resume theme
