@@ -3,7 +3,6 @@ use crate::application::repository::ResumeRepository;
 use std::error::Error;
 use std::rc::Rc;
 
-// Use cases for the Resume Builder application
 pub struct ResumeUseCase {
     repository: Rc<dyn ResumeRepository>,
 }

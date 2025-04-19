@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use std::rc::Rc;
 use std::cell::RefCell;
 
-// View model for the Resume Builder application
+
 pub struct ResumeViewModel {
     resume_signal: RefCell<Signal<Resume>>,
     use_case: Rc<ResumeUseCase>,
