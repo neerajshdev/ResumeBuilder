@@ -1,17 +1,31 @@
-mod domain;
 mod application;
+mod domain;
 mod infrastructure;
 mod presentation;
 
 use dioxus::prelude::*;
 use std::rc::Rc;
+use tracing::Level;
+#[cfg(target_arch = "wasm32")]
+use tracing_wasm;
 
-use domain::*;
 use application::*;
+use domain::sample_data::*;
+use domain::*;
 use infrastructure::*;
 use presentation::prelude::*;
-
 fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let subscriber = tracing_subscriber::fmt::Subscriber::builder()
+            .with_max_level(Level::DEBUG)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        tracing_wasm::set_as_global_default();
+    }
     dioxus::launch(app);
 }
 
@@ -20,25 +34,24 @@ fn app() -> Element {
     // UI state
     let mut is_preview_mode = use_signal(|| false);
     let mut show_export_modal = use_signal(|| false);
-    let mut sections_order = use_signal(|| vec![
-        "personal", "education", "experience", "skills", "projects"
-    ]);
-    
+    let mut sections_order =
+        use_signal(|| vec!["personal", "education", "experience", "skills", "projects"]);
+
     // Resume data state
-    let mut resume = use_signal(|| Resume::default());
+    let mut resume = use_signal(|| sample_resume());
     let mut selected_theme = use_signal(|| 0);
-    
+
     // --- Setup Repository and Use Cases ---
     #[cfg(feature = "web")]
     let repository = Rc::new(LocalStorageResumeRepository::new("resume-data"));
-    
+
     #[cfg(not(feature = "web"))]
     let repository = Rc::new(InMemoryResumeRepository::new(use_signal(|| None::<Resume>)));
-    
+
     let use_case = Rc::new(ResumeUseCase::new(repository));
     let use_case_load = use_case.clone();
     let use_case_save = use_case.clone();
-    
+
     // --- Themes ---
     let themes: Vec<Theme> = vec![
         ("Professional", "bg-blue-50"),
@@ -48,15 +61,17 @@ fn app() -> Element {
         ("Executive", "bg-amber-50"),
         ("Technical", "bg-cyan-50"),
     ];
-    
+
     // --- Effects ---
     // Load existing data if available
     use_effect(move || {
+        tracing::debug!("Loading resume");
         if let Ok(loaded_resume) = use_case_load.load_resume() {
+            tracing::debug!("Resume loaded successfully");
             resume.set(loaded_resume);
         }
     });
-    
+
     // --- Event Handlers ---
     // Function to handle section drag
     let mut handle_section_drag = move |from: usize, to: usize| {
@@ -65,7 +80,7 @@ fn app() -> Element {
         new_order.insert(to, section);
         sections_order.set(new_order);
     };
-    
+
     // Save resume function
     let save_resume = move |_: Event<MouseData>| {
         if let Err(err) = use_case_save.save_resume(&resume()) {
@@ -74,23 +89,23 @@ fn app() -> Element {
             println!("Resume saved successfully");
         }
     };
-    
+
     // Export to PDF function
     let export_to_pdf = move |_: Event<MouseData>| {
         show_export_modal.set(true);
     };
-    
+
     // Function for handling close of export modal
     let close_export_modal = move |_| {
         show_export_modal.set(false);
     };
-    
+
     // Function for handling PDF download
     let download_pdf = move |_| {
-        println!("Downloading PDF...");
+        tracing::debug!("Downloading PDF...");
         show_export_modal.set(false);
     };
-    
+
     // --- Render UI ---
     rsx! {
         div {
@@ -104,7 +119,7 @@ fn app() -> Element {
                         class: "text-3xl font-bold text-blue-800",
                         "Resume Builder"
                     },
-                    
+
                     div {
                         class: "flex items-center gap-4",
                         // Edit/Preview toggle
@@ -112,7 +127,7 @@ fn app() -> Element {
                             is_preview_mode: is_preview_mode(),
                             on_toggle: move |preview| is_preview_mode.set(preview)
                         },
-                        
+
                         button {
                             class: "px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-300 flex items-center",
                             onclick: export_to_pdf,
@@ -132,7 +147,7 @@ fn app() -> Element {
                             },
                             "Export to PDF"
                         },
-                        
+
                         button {
                             class: "px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-300",
                             onclick: save_resume,
@@ -140,7 +155,7 @@ fn app() -> Element {
                         }
                     }
                 },
-                
+
                 // Content - Either Preview or Edit mode
                 if is_preview_mode() {
                     // Preview mode
@@ -149,7 +164,7 @@ fn app() -> Element {
                         selected_theme: selected_theme(),
                         on_theme_select: move |index| selected_theme.set(index)
                     }
-                    
+
                     ResumePreview {
                         resume: resume(),
                         theme_bg: themes[selected_theme()].1
@@ -162,7 +177,7 @@ fn app() -> Element {
                             class: "text-gray-700 italic mb-4",
                             "Tip: Drag and drop sections to reorder them in your resume"
                         },
-                        
+
                         // Render each section in the user-defined order
                         for (index, section_id) in sections_order().iter().enumerate() {
                             DraggableSection {
@@ -195,7 +210,7 @@ fn app() -> Element {
                                                 class: "text-xl font-bold mb-4",
                                                 "Education"
                                             },
-                                            
+
                                             EducationForm {
                                                 education_list: resume().education.clone(),
                                                 on_add: move |edu| {
@@ -227,7 +242,7 @@ fn app() -> Element {
                                                 class: "text-xl font-bold mb-4",
                                                 "Work Experience"
                                             },
-                                            
+
                                             ExperienceForm {
                                                 experience_list: resume().experience.clone(),
                                                 on_add: move |exp| {
@@ -259,7 +274,7 @@ fn app() -> Element {
                                                 class: "text-xl font-bold mb-4",
                                                 "Skills"
                                             },
-                                            
+
                                             SkillsForm {
                                                 skills: resume().skills.skill_list.clone(),
                                                 on_add: move |skill| {
@@ -288,7 +303,7 @@ fn app() -> Element {
                                                 class: "text-xl font-bold mb-4",
                                                 "Projects"
                                             },
-                                            
+
                                             ProjectsForm {
                                                 projects: resume().projects.clone(),
                                                 on_add: move |project| {
@@ -318,7 +333,7 @@ fn app() -> Element {
                     }
                 }
             },
-            
+
             // Export modal
             ExportModal {
                 show: show_export_modal(),
@@ -329,4 +344,3 @@ fn app() -> Element {
         }
     }
 }
-

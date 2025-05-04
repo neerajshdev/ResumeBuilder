@@ -2,6 +2,13 @@
 
 A Rust web application built with Dioxus Framework that helps users create professional resumes.
 
+## Screenshots
+
+![Screenshot 1](screenshots/screenshot_1.png)
+![Screenshot 2](screenshots/screenshot_2.png)
+
+
+
 ## Features
 
 - Create professional resumes with multiple sections
